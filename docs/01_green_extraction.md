@@ -79,7 +79,7 @@ QGIS의 "표현식으로 선택" 기능을 사용하여 녹지 영역 필터링
 
 ## 6. 결과 (시각화)
 
-![서울시 녹지 추출 결과](images/greenfeatur_selected.png)
+![서울시 녹지 추출 결과](images/greenfeature_selected.png)
 
 ---
 
