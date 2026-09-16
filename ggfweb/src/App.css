@@ -1,26 +1,66 @@
+@font-face {
+  font-family: 'NanumBarunGothic';
+  src: url('./fonts/나눔바른고딕/NanumFontSetup_TTF_BARUNGOTHIC/NanumBarunGothicUltraLight.ttf') format('truetype');
+  font-weight: 100;
+}
+
+@font-face {
+  font-family: 'NanumBarunGothic';
+  src: url('./fonts/나눔바른고딕/NanumFontSetup_TTF_BARUNGOTHIC/NanumBarunGothicLight.ttf') format('truetype');
+  font-weight: 300;
+}
+
+@font-face {
+  font-family: 'NanumBarunGothic';
+  src: url('./fonts/나눔바른고딕/NanumFontSetup_TTF_BARUNGOTHIC/NanumBarunGothic.ttf') format('truetype');
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: 'NanumBarunGothic';
+  src: url('./fonts/나눔바른고딕/NanumFontSetup_TTF_BARUNGOTHIC/NanumBarunGothicBold.ttf') format('truetype');
+  font-weight: 700;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
+:root {
+  --navbar-h: 113px;
+}
+
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background-color: #fff;
-  color: #000;
+  font-family: 'NanumBarunGothic', sans-serif;
+  background-color: #f5f5f5;
+  color: #111;
 }
 
 .App {
-  min-height: 100vh;
+  width: 100vw;
+  padding-top: var(--navbar-h);
+}
+
+.map-section {
+  display: flex;
+  height: calc(100vh - var(--navbar-h));
 }
 
 /* Navbar */
 .navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 32px;
-  border-bottom: 1px solid #e0e0e0;
+  padding: 22px 43px;
+  background: #fff;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
 
 .navbar-brand {
@@ -29,48 +69,219 @@ body {
 }
 
 .brand-title {
-  font-size: 20px;
+  font-size: 52px;
   font-weight: 700;
-  line-height: 1.3;
+  line-height: 1.2;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  color: #111;
+  letter-spacing: -0.5px;
 }
 
 .brand-subtitle {
-  font-size: 14px;
-  color: #333;
-  margin-top: 2px;
+  font-size: 16px;
+  color: #111;
+  margin-top: 3px;
 }
 
 .navbar-menu {
   display: flex;
   gap: 32px;
   align-items: center;
+  align-self: flex-end;
+  padding-bottom: 6px;
 }
 
 .nav-btn {
   background: none;
   border: none;
-  font-size: 18px;
+  font-size: 24px;
   cursor: pointer;
-  color: #000;
+  color: #111;
   padding: 0;
+  letter-spacing: 0.3px;
 }
 
 .nav-btn:hover {
+  color: #111;
+}
+
+/* 전체화면 지도 */
+.map-embed {
+  flex: 1;
+  height: 100%;
+  min-width: 0;
+}
+
+/* 사이드바 */
+.sidebar {
+  flex-shrink: 0;
+  width: 300px;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(12px);
+  border-left: 1px solid rgba(0, 0, 0, 0.08);
+  z-index: 9;
+  padding: 24px 28px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  overflow-y: auto;
+}
+
+.sidebar.hidden {
+  transform: translateX(100%);
+}
+
+.sidebar-title {
+  font-size: 26px;
+  font-weight: 700;
+  color: #111;
+  border-bottom: 1px solid #e5e5e5;
+  padding-bottom: 14px;
+}
+
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sidebar-label {
+  font-size: 11px;
+  color: #111;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.sidebar-value {
+  font-size: 28px;
+  font-weight: 600;
+  color: #111;
+  margin-top: 2px;
+}
+
+.sidebar-unit {
+  font-size: 13px;
+  color: #111;
+  margin-left: 4px;
+  font-weight: 400;
+}
+
+.sidebar-stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-divider {
+  border: none;
+  border-top: 1px solid #eee;
+}
+
+.sidebar-hint {
+  font-size: 13px;
+  color: #111;
+  margin-top: auto;
+  text-align: center;
+}
+
+.sidebar-close {
+  align-self: flex-end;
+  background: none;
+  border: none;
+  color: #111;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+  margin-bottom: -16px;
+}
+
+.sidebar-close:hover {
+  color: #111;
+}
+
+.sidebar-badge {
+  font-size: 11px;
+  color: #111;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin-bottom: -16px;
+}
+
+.sidebar-value.small {
+  font-size: 18px;
+}
+
+.sidebar-streetview {
+  width: 100%;
+  height: 160px;
+  object-fit: cover;
+  border-radius: 8px;
+  margin-bottom: 4px;
+}
+
+.sidebar-map-link {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 13px;
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.sidebar-map-link:hover {
   text-decoration: underline;
 }
 
-/* Main content */
-.main-content {
-  padding: 16px 32px;
+/* 스크롤 섹션 */
+.scroll-section {
+  border-top: 1px solid rgba(255, 255, 255, 0.3);
+  min-height: 100vh;
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(12px);
 }
 
-.map-embed {
-  width: 70%;
-  aspect-ratio: 4 / 3;
-  background-color: #d9d9d9;
+/* 레이어 토글 (사이드바 내부) */
+.sidebar-layer-section {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid #eee;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.layer-toggle {
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  color: #333;
+  gap: 8px;
+  padding: 8px 14px;
+  background: #f5f5f5;
+  border: 1px solid #e5e5e5;
+  border-radius: 20px;
+  font-size: 13px;
+  color: #111;
+  cursor: pointer;
+  width: fit-content;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+
+.layer-toggle.active {
+  color: #111;
+  border-color: #ccc;
+  background: #fff;
+}
+
+.layer-toggle-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ccc;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.layer-toggle.active .layer-toggle-dot {
+  background: #40916c;
 }
