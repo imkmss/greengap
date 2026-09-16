@@ -1,1 +1,16 @@
 .DS_Store
+
+# 파이썬
+__pycache__/
+*.pyc
+
+# 중첩 저장소. 같은 원격(imkmss/greengap)을 가진 구버전 클론이라
+# 그대로 커밋하면 깨진 gitlink가 생긴다.
+greengap/
+
+# 파이프라인 재실행 시 생기는 임시 백업
+*.bak
+
+# 환경변수 (API 키)
+.env
+.env.local
