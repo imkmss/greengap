@@ -635,7 +635,7 @@ function App() {
       <div ref={mypageRef} data-section="mypage" className="scroll-section scroll-mypage">
         <div className="about-content">
           <section className="about-hero">
-            <h1 className="about-hero-title">My Page</h1>
+            <h1 className="about-hero-title">MyPage</h1>
             <p className="about-hero-sub">준비 중입니다</p>
           </section>
         </div>

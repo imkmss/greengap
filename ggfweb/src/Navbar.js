@@ -33,7 +33,7 @@ function Navbar({ activeSection }) {
           className={`nav-btn ${location.pathname === '/mypage' ? 'active' : ''}`}
           style={scrollColor('mypage')}
           onClick={() => navigate('/mypage')}
-        ><b>My Page</b></button>
+        ><b>MyPage</b></button>
       </div>
     </nav>
   );
