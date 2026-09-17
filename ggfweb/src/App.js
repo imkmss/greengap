@@ -20,15 +20,32 @@ const CLUSTER_MIN_LEVEL = 6;
 // 되살릴 때는 이 값을 true로 바꾸고 App 안의 choropleth useEffect 주석을 해제한다.
 const ENABLE_CHOROPLETH = false;
 
-// 형광 계열 팔레트. 색상환을 23등분해 구마다 하나씩 배정한다.
-// 선택 마커(#ffff00)와 겹치지 않도록 순수 노랑 근처는 비워뒀다.
-const DISTRICT_COLORS = [
-  '#ff073a', '#ff2d00', '#ff6b00', '#ff9e00', '#ffc800',
-  '#c6ff00', '#7cff00', '#39ff14', '#00ff6a', '#00ffb3',
-  '#00fff0', '#00d4ff', '#00a3ff', '#2979ff', '#3d4eff',
-  '#6a2bff', '#9b30ff', '#c21fff', '#e619ff', '#ff00d4',
-  '#ff0080', '#ff2e63', '#ff5c8a',
-];
+// 공원 구분은 원본에 14종이 있는데 뒤쪽 6종은 다 합쳐도 10개뿐이라 7그룹으로 묶는다.
+// 색으로 자치구를 나타내던 것을 공원 성격으로 바꿨다. 자치구는 지도에 이미 지명이
+// 표시되는 데다 23색은 범례를 만들어도 눈으로 매칭이 안 됐다.
+const PARK_GROUPS = {
+  neighborhood: { label: '근린공원',   color: '#39ff14', shape: 'circle'   },
+  children:     { label: '어린이공원', color: '#ffc800', shape: 'circle'   },
+  pocket:       { label: '소공원',     color: '#00ffb3', shape: 'square'   },
+  culture:      { label: '문화·역사',  color: '#c21fff', shape: 'circle'   },
+  active:       { label: '수변·체육',  color: '#00d4ff', shape: 'circle'   },
+  large:        { label: '대형·특수',  color: '#ff6b00', shape: 'circle'   },
+  etc:          { label: '기타',       color: '#ff2ec4', shape: 'triangle' },
+};
+
+const PARK_TYPE_TO_GROUP = {
+  '근린공원': 'neighborhood',
+  '어린이공원': 'children',
+  '소공원': 'pocket',
+  '문화공원': 'culture', '역사공원': 'culture',
+  '수변공원': 'active', '체육공원': 'active',
+  // "기타"는 이름과 달리 평균 16만 제곱미터로 가장 큰 공원들이다. 회색에 묻히면 안 된다.
+  '기타': 'large', '도시농업공원': 'large', '묘지공원': 'large', '주제공원': 'large',
+};
+
+function parkGroup(parkType) {
+  return PARK_GROUPS[PARK_TYPE_TO_GROUP[parkType] || 'etc'];
+}
 
 function getGreenGapColor(value, min, max) {
   const ratio = (value - min) / (max - min);
@@ -37,28 +54,51 @@ function getGreenGapColor(value, min, max) {
   return `rgb(${r}, ${g}, 40)`;
 }
 
-// 카카오 마커는 구글의 SymbolPath 같은 내장 도형이 없어서 원을 SVG로 직접 만든다
-function parkMarkerImage(color, isSelected) {
-  const radius = isSelected ? 7 : 4;
+// 카카오 마커는 구글의 SymbolPath 같은 내장 도형이 없어서 SVG로 직접 그린다.
+// 지름 8px일 때는 모양이 구분되지 않아 12px(선택 시 18px)로 키웠다. 단지 모드로
+// 가면 화면에 공원이 5~15개만 뜨므로 크게 그려도 부담이 없다.
+function parkMarkerImage(color, shape, isSelected) {
+  const radius = isSelected ? 9 : 6;
   const strokeColor = isSelected ? '#ffffff' : '#000000';
-  const strokeWeight = isSelected ? 1.5 : 0.5;
+  const strokeWeight = isSelected ? 2 : 0.8;
   const size = Math.ceil((radius + strokeWeight) * 2);
-  const center = size / 2;
-  const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">` +
-    `<circle cx="${center}" cy="${center}" r="${radius}" fill="${color}" fill-opacity="0.95" ` +
-    `stroke="${strokeColor}" stroke-width="${strokeWeight}" /></svg>`;
+  const c = size / 2;
 
+  let body;
+  if (shape === 'triangle') {
+    // 정삼각형은 같은 반지름의 원보다 작아 보여서 조금 키운다.
+    const r = radius * 1.15;
+    const points = [
+      `${c},${c - r}`,
+      `${c - r * 0.866},${c + r * 0.5}`,
+      `${c + r * 0.866},${c + r * 0.5}`,
+    ].join(' ');
+    body = `<polygon points="${points}" fill="${color}" fill-opacity="0.95" ` +
+           `stroke="${strokeColor}" stroke-width="${strokeWeight}" stroke-linejoin="round" />`;
+  } else if (shape === 'square') {
+    // 같은 반지름이면 정사각형이 원보다 넓어 보인다(4r² 대 3.14r²).
+    // 0.9를 곱해 면적을 맞추고, 작은 크기에서 뭉개지지 않게 모서리를 살짝 둥글린다.
+    const half = radius * 0.9;
+    body = `<rect x="${c - half}" y="${c - half}" width="${half * 2}" height="${half * 2}" ` +
+           `rx="${radius * 0.18}" fill="${color}" fill-opacity="0.95" ` +
+           `stroke="${strokeColor}" stroke-width="${strokeWeight}" stroke-linejoin="round" />`;
+  } else {
+    body = `<circle cx="${c}" cy="${c}" r="${radius}" fill="${color}" fill-opacity="0.95" ` +
+           `stroke="${strokeColor}" stroke-width="${strokeWeight}" />`;
+  }
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">${body}</svg>`;
   return {
     src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
     size: { width: size, height: size },
   };
 }
 
-const ParkMarker = memo(function ParkMarker({ park, isSelected, color, onSelect }) {
+const ParkMarker = memo(function ParkMarker({ park, isSelected, onSelect }) {
+  const group = parkGroup(park['공원구분']);
   const image = useMemo(
-    () => parkMarkerImage(isSelected ? '#ffff00' : color, isSelected),
-    [isSelected, color]
+    () => parkMarkerImage(isSelected ? '#ffff00' : group.color, group.shape, isSelected),
+    [isSelected, group.color, group.shape]
   );
 
   return (
@@ -235,13 +275,6 @@ function App() {
       .then(data => { geojsonRef.current = data; });
   }, []);
 
-  const colorMap = useMemo(() => {
-    const names = [...new Set(parks.map(p => p['구']))].sort();
-    const map = {};
-    names.forEach((name, i) => { map[name] = DISTRICT_COLORS[i % DISTRICT_COLORS.length]; });
-    return map;
-  }, [parks]);
-
   const onMapLoad = useCallback((map) => {
     mapRef.current = map;
   }, []);
@@ -414,7 +447,6 @@ function App() {
                         key={i}
                         park={park}
                         isSelected={isSelected}
-                        color={colorMap[park['구']] || '#cccccc'}
                         onSelect={handleSelectPark}
                       />
                     );
