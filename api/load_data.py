@@ -1,5 +1,6 @@
 import os
 import glob
+import unicodedata
 import pandas as pd
 import psycopg2
 from psycopg2.extras import execute_values
@@ -39,8 +40,13 @@ def load_parks(cur):
     all_rows = []
     for path in glob.glob(os.path.join(DATA_DIR, "구/*.csv")):
         gu_name = os.path.splitext(os.path.basename(path))[0]
+        # macOS 는 한글 파일명을 자소 분리(NFD)로 저장한다. 브라우저로 내려받은
+        # 파일과 기존 파일의 표현이 달라 문자열 비교가 실패하므로 NFC 로 맞춘다.
+        gu_name = unicodedata.normalize("NFC", gu_name)
         gu_code = next((k for k, v in GU_CODE_MAP.items() if v == gu_name), None)
         if not gu_code:
+            # 조용히 건너뛰면 데이터가 빠진 걸 알아채기 어렵다.
+            print(f"  건너뜀 — 자치구를 알 수 없는 파일: {os.path.basename(path)}")
             continue
         df = pd.read_csv(path, encoding="utf-8-sig", usecols=["공원명", "공원구분", "위도", "경도", "공원면적"])
         df = df.dropna(subset=["위도", "경도"])
