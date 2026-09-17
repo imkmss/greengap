@@ -13,12 +13,22 @@ const SEOUL_LEVEL = 9;
 //   minLevel prop -> kakao setMaxLevel() (축소 한계)  ← 우리가 쓰는 쪽
 //   maxLevel prop -> kakao setMinLevel() (확대 한계)
 const ZOOM_OUT_LIMIT = 11;
-// 클러스터링 시작 레벨 (이 레벨 이상으로 축소되면 묶는다)
-const CLUSTER_MIN_LEVEL = 6;
+// 클러스터링 시작 레벨. 6이면 축척 250m까지 확대해야 개별 마커가 보여서
+// 대부분의 구간에서 클러스터만 보였다. 8이면 1km 축척부터 마커가 드러난다.
+const CLUSTER_MIN_LEVEL = 8;
 
-// 구별 색칠은 카카오 Polygon으로 재현할지 결정 전까지 보류.
-// 되살릴 때는 이 값을 true로 바꾸고 App 안의 choropleth useEffect 주석을 해제한다.
-const ENABLE_CHOROPLETH = false;
+const API_BASE = 'http://localhost:8000';
+
+// 2040 서울도시기본계획의 보행 10분 접근권 기준
+const RADIUS_M = 800;
+
+// 사이드바 너비. 기본값이 곧 최소값이고 두 배까지 넓힐 수 있다.
+const SIDEBAR_MIN_W = 300;
+const SIDEBAR_MAX_W = SIDEBAR_MIN_W * 2;
+
+// 단지 마커. 소공원이 민트 네모라 겹치지 않게 진한 남색에 흰 테두리를 주고
+// 공원보다 크게 그린다. 이 도구의 주인공이 단지라 시각적 위계도 그쪽이 위다.
+const HOUSING_MARKER = { color: '#12309b', shape: 'square', stroke: '#ffffff', radius: 7 };
 
 // 공원 구분은 원본에 14종이 있는데 뒤쪽 6종은 다 합쳐도 10개뿐이라 7그룹으로 묶는다.
 // 색으로 자치구를 나타내던 것을 공원 성격으로 바꿨다. 자치구는 지도에 이미 지명이
@@ -47,20 +57,13 @@ function parkGroup(parkType) {
   return PARK_GROUPS[PARK_TYPE_TO_GROUP[parkType] || 'etc'];
 }
 
-function getGreenGapColor(value, min, max) {
-  const ratio = (value - min) / (max - min);
-  const r = Math.round(180 * (1 - ratio));
-  const g = Math.round(80 + 140 * ratio);
-  return `rgb(${r}, ${g}, 40)`;
-}
-
 // 카카오 마커는 구글의 SymbolPath 같은 내장 도형이 없어서 SVG로 직접 그린다.
 // 지름 8px일 때는 모양이 구분되지 않아 12px(선택 시 18px)로 키웠다. 단지 모드로
 // 가면 화면에 공원이 5~15개만 뜨므로 크게 그려도 부담이 없다.
-function parkMarkerImage(color, shape, isSelected) {
-  const radius = isSelected ? 9 : 6;
-  const strokeColor = isSelected ? '#ffffff' : '#000000';
-  const strokeWeight = isSelected ? 2 : 0.8;
+function markerImage({ color, shape, selected = false, radius: baseRadius = 6, stroke = '#000000' }) {
+  const radius = selected ? baseRadius + 3 : baseRadius;
+  const strokeColor = selected ? '#ffffff' : stroke;
+  const strokeWeight = selected ? 2 : 0.8;
   const size = Math.ceil((radius + strokeWeight) * 2);
   const c = size / 2;
 
@@ -97,7 +100,11 @@ function parkMarkerImage(color, shape, isSelected) {
 const ParkMarker = memo(function ParkMarker({ park, isSelected, onSelect }) {
   const group = parkGroup(park['공원구분']);
   const image = useMemo(
-    () => parkMarkerImage(isSelected ? '#ffff00' : group.color, group.shape, isSelected),
+    () => markerImage({
+      color: isSelected ? '#ffff00' : group.color,
+      shape: group.shape,
+      selected: isSelected,
+    }),
     [isSelected, group.color, group.shape]
   );
 
@@ -112,137 +119,276 @@ const ParkMarker = memo(function ParkMarker({ park, isSelected, onSelect }) {
   );
 });
 
-function LayerControls({ showParks, onToggleParks, showChoropleth, onToggleChoropleth }) {
+const HousingMarker = memo(function HousingMarker({ item, isSelected, onSelect }) {
+  const image = useMemo(
+    () => markerImage({
+      ...HOUSING_MARKER,
+      color: isSelected ? '#ffff00' : HOUSING_MARKER.color,
+      selected: isSelected,
+    }),
+    [isSelected]
+  );
+
+  return (
+    <MapMarker
+      position={{ lat: item.lat, lng: item.lng }}
+      title={item.complex_name || item.name}
+      image={image}
+      zIndex={isSelected ? 999 : 2}
+      onClick={() => onSelect(item)}
+    />
+  );
+});
+
+// 사이드바와 지도 사이의 드래그 핸들. 사이드바가 오른쪽에 있으므로 창 너비에서
+// 커서 위치를 빼면 그대로 너비가 된다. 더블클릭하면 기본값으로 돌아간다.
+function SidebarResizer({ onResize }) {
+  const handleMouseDown = useCallback((e) => {
+    e.preventDefault();
+    const move = (ev) => onResize(window.innerWidth - ev.clientX);
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    // 드래그 중 지도나 텍스트가 선택되는 걸 막는다.
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [onResize]);
+
+  return (
+    <div
+      className="sidebar-resizer"
+      onMouseDown={handleMouseDown}
+      onDoubleClick={() => onResize(SIDEBAR_MIN_W)}
+      title="드래그하여 너비 조절 (더블클릭: 기본값)"
+    />
+  );
+}
+
+function ModeToggle({ mode, onChange }) {
   return (
     <div className="sidebar-layer-section">
-      <span className="sidebar-label">레이어</span>
-      {ENABLE_CHOROPLETH && (
+      <span className="sidebar-label">기준</span>
+      {[['housing', '단지'], ['park', '공원']].map(([value, label]) => (
         <button
-          className={`layer-toggle ${showChoropleth ? 'active' : ''}`}
-          onClick={onToggleChoropleth}
+          key={value}
+          className={`layer-toggle ${mode === value ? 'active' : ''}`}
+          onClick={() => onChange(value)}
         >
-          <span className="layer-toggle-dot" style={{ background: showChoropleth ? '#2a9d8f' : '#ccc' }} />
-          녹지 비율
+          <span
+            className="layer-toggle-dot"
+            style={{ background: mode === value ? '#12309b' : '#ccc' }}
+          />
+          {label}
         </button>
-      )}
-      <button
-        className={`layer-toggle ${showParks ? 'active' : ''}`}
-        onClick={onToggleParks}
-      >
-        <span className="layer-toggle-dot" />
-        공원 레이어
-      </button>
+      ))}
     </div>
   );
 }
 
-function Sidebar({ district, park, onClose, showParks, onToggleParks, showChoropleth, onToggleChoropleth }) {
-  const layerControls = (
-    <LayerControls
-      showParks={showParks}
-      onToggleParks={onToggleParks}
-      showChoropleth={showChoropleth}
-      onToggleChoropleth={onToggleChoropleth}
-    />
+// 범례이자 필터. 7그룹이라 눈으로 매칭이 되고, 항목을 누르면 해당 그룹이 꺼진다.
+// 공원 모드에서는 어린이공원 1,010개를 빼야 클릭으로 고를 만한 수가 된다.
+function Legend({ hidden, onToggle, interactive }) {
+  return (
+    <div className="legend">
+      {Object.entries(PARK_GROUPS).map(([key, g]) => {
+        const off = hidden.has(key);
+        return (
+          <button
+            key={key}
+            className={`legend-item ${off ? 'off' : ''}`}
+            onClick={interactive ? () => onToggle(key) : undefined}
+            disabled={!interactive}
+          >
+            <span
+              className={`legend-swatch legend-${g.shape}`}
+              style={{ background: off ? '#ccc' : g.color }}
+            />
+            {g.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function formatDistance(m) {
+  return m < 1000 ? `${Math.round(m)}m` : `${(m / 1000).toFixed(1)}km`;
+}
+
+// 단지 기준이든 공원 기준이든 응답 형태가 같아서 이 컴포넌트 하나를 공유한다.
+function NearbyPanel({ detail, onHover }) {
+  const { items, summary, nearest, policy_met: policyMet, radius } = detail;
+  const targetIsPark = detail.origin.kind === 'housing';
+
+  return (
+    <>
+      <div className={`policy-badge ${policyMet ? 'met' : 'unmet'}`}>
+        {targetIsPark
+          ? (policyMet ? '도보 10분 내 공원 접근권 충족' : '도보 10분 내 공원 없음')
+          : (policyMet ? `반경 내 공공임대 ${summary.count}곳` : '반경 내 공공임대 없음')}
+      </div>
+
+      {nearest && (
+        <div className="sidebar-stat">
+          <span className="sidebar-label">가장 가까운 {targetIsPark ? '공원' : '단지'}</span>
+          <span className="sidebar-value small">
+            {nearest.name} · {formatDistance(nearest.distance_m)}
+          </span>
+        </div>
+      )}
+
+      <hr className="sidebar-divider" />
+
+      <div className="sidebar-stat">
+        <span className="sidebar-label">반경 {radius}m 내</span>
+        <span className="sidebar-value">
+          {summary.count}
+          <span className="sidebar-unit">{targetIsPark ? '곳' : '단지'}</span>
+        </span>
+      </div>
+      {targetIsPark && summary.count > 0 && (
+        <div className="sidebar-stat">
+          <span className="sidebar-label">공원 총면적</span>
+          <span className="sidebar-value">
+            {Math.round(summary.total_area).toLocaleString()}
+            <span className="sidebar-unit">m²</span>
+          </span>
+        </div>
+      )}
+      {!targetIsPark && summary.count > 0 && (
+        <div className="sidebar-stat">
+          <span className="sidebar-label">총 세대수</span>
+          <span className="sidebar-value">
+            {summary.total_households.toLocaleString()}
+            <span className="sidebar-unit">세대</span>
+          </span>
+        </div>
+      )}
+
+      <ul className="nearby-list">
+        {items.map(item => (
+          <li
+            key={item.id}
+            className="nearby-item"
+            onMouseEnter={() => onHover(item.id)}
+            onMouseLeave={() => onHover(null)}
+          >
+            <span className="nearby-dist">{formatDistance(item.distance_m)}</span>
+            <span className="nearby-name">{item.name}</span>
+            <span className="nearby-sub">{item.subtype}</span>
+          </li>
+        ))}
+        {items.length === 0 && (
+          <li className="sidebar-hint">
+            반경 {radius}m 안에 {targetIsPark ? '공원이' : '단지가'} 없습니다
+          </li>
+        )}
+      </ul>
+    </>
+  );
+}
+
+function Sidebar({ mode, onModeChange, origin, detail, loading, onClose, onHover, hidden, onToggleGroup }) {
+  const controls = (
+    <>
+      <ModeToggle mode={mode} onChange={onModeChange} />
+      <Legend hidden={hidden} onToggle={onToggleGroup} interactive={mode === 'park'} />
+    </>
   );
 
-  if (!district && !park) {
+  if (!origin) {
     return (
       <div className="sidebar">
-        <p className="sidebar-hint">구 또는 공원을 클릭하면<br />정보를 확인할 수 있어요</p>
-        {layerControls}
+        <p className="sidebar-hint">
+          {mode === 'housing'
+            ? '공공임대 단지를 클릭하면\n주변 공원과의 거리를 확인할 수 있어요'
+            : '공원을 클릭하면\n주변 공공임대 단지를 확인할 수 있어요'}
+        </p>
+        {controls}
       </div>
     );
   }
 
-  if (district?.noData) {
-    return (
-      <div className="sidebar">
-        <button className="sidebar-close" onClick={onClose}>✕</button>
-        <div className="sidebar-badge">구</div>
-        <div className="sidebar-title">{district['구']}</div>
-        <p className="sidebar-hint">데이터가 없습니다</p>
-        {layerControls}
-      </div>
-    );
-  }
-
-  if (park) {
-    const apiKey = process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
-    // Street View Static도 구글 결제가 켜져 있어야 뜬다. 실패하면 이미지를 숨긴다.
-    const streetViewUrl = `https://maps.googleapis.com/maps/api/streetview?size=280x160&location=${park['위도']},${park['경도']}&fov=90&key=${apiKey}`;
-    const mapsUrl = `https://map.kakao.com/link/map/${encodeURIComponent(park['공원명'])},${park['위도']},${park['경도']}`;
-
-    return (
-      <div className="sidebar">
-        <button className="sidebar-close" onClick={onClose}>✕</button>
-        <div className="sidebar-badge">공원</div>
-        <div className="sidebar-title">{park['공원명']}</div>
-        <img
-          className="sidebar-streetview"
-          src={streetViewUrl}
-          alt={park['공원명']}
-          onError={(e) => { e.currentTarget.style.display = 'none'; }}
-        />
-        <div className="sidebar-section">
-          <div className="sidebar-stat">
-            <span className="sidebar-label">공원 구분</span>
-            <span className="sidebar-value small">{park['공원구분']}</span>
-          </div>
-          <hr className="sidebar-divider" />
-          <div className="sidebar-stat">
-            <span className="sidebar-label">면적</span>
-            <span className="sidebar-value">
-              {Number(park['공원면적']).toLocaleString()}
-              <span className="sidebar-unit">m²</span>
-            </span>
-          </div>
-          <div className="sidebar-stat">
-            <span className="sidebar-label">위치</span>
-            <span className="sidebar-value small">{park['구']}</span>
-          </div>
-          <a className="sidebar-map-link" href={mapsUrl} target="_blank" rel="noreferrer">
-            카카오맵에서 보기 →
-          </a>
-        </div>
-        {layerControls}
-      </div>
-    );
-  }
+  const isHousing = mode === 'housing';
+  const mapUrl = `https://map.kakao.com/link/map/${encodeURIComponent(origin.name)},${origin.lat},${origin.lng}`;
 
   return (
     <div className="sidebar">
       <button className="sidebar-close" onClick={onClose}>✕</button>
-      <div className="sidebar-badge">구</div>
-      <div className="sidebar-title">{district['구']}</div>
+      <div className="sidebar-badge">{isHousing ? '공공임대 단지' : '공원'}</div>
+      <div className="sidebar-title">{origin.name}</div>
+
       <div className="sidebar-section">
+        {isHousing ? (
+          <>
+            <div className="sidebar-stat">
+              <span className="sidebar-label">임대유형</span>
+              <span className="sidebar-value small">{origin.lease_type}</span>
+            </div>
+            <div className="sidebar-stat">
+              <span className="sidebar-label">세대수</span>
+              <span className="sidebar-value">
+                {Number(origin.households).toLocaleString()}
+                <span className="sidebar-unit">세대</span>
+              </span>
+            </div>
+            <div className="sidebar-stat">
+              <span className="sidebar-label">입주</span>
+              <span className="sidebar-value small">{String(origin.move_in_date).slice(0, 7)}</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="sidebar-stat">
+              <span className="sidebar-label">공원 구분</span>
+              <span className="sidebar-value small">{origin.subtype}</span>
+            </div>
+            <div className="sidebar-stat">
+              <span className="sidebar-label">면적</span>
+              <span className="sidebar-value">
+                {Number(origin.area).toLocaleString()}
+                <span className="sidebar-unit">m²</span>
+              </span>
+            </div>
+          </>
+        )}
         <div className="sidebar-stat">
-          <span className="sidebar-label">1인당 녹지 면적</span>
-          <span className="sidebar-value">
-            {Number(district.green_per_capita).toFixed(2)}
-            <span className="sidebar-unit">m²/인</span>
-          </span>
-        </div>
-        <hr className="sidebar-divider" />
-        <div className="sidebar-stat">
-          <span className="sidebar-label">총 공원 면적</span>
-          <span className="sidebar-value">
-            {(Number(district.total_park_area) / 1_000_000).toFixed(2)}
-            <span className="sidebar-unit">km²</span>
-          </span>
-        </div>
-        <div className="sidebar-stat">
-          <span className="sidebar-label">생활인구</span>
-          <span className="sidebar-value">
-            {Math.round(Number(district.population) / 10000).toLocaleString()}
-            <span className="sidebar-unit">만 명</span>
-          </span>
+          <span className="sidebar-label">위치</span>
+          <span className="sidebar-value small">{origin.gu_name}</span>
         </div>
       </div>
-      {layerControls}
+
+      <div className="sidebar-section">
+        {loading && <p className="sidebar-hint">주변 정보를 불러오는 중…</p>}
+        {!loading && detail && <NearbyPanel detail={detail} onHover={onHover} />}
+      </div>
+
+      <div className="sidebar-section">
+        {isHousing && (
+          <>
+            <a className="sidebar-map-link" href="https://www.i-sh.co.kr" target="_blank" rel="noreferrer">
+              SH 청약정보 →
+            </a>
+            <a className="sidebar-map-link" href="https://www.myhome.go.kr" target="_blank" rel="noreferrer">
+              마이홈포털 →
+            </a>
+          </>
+        )}
+        <a className="sidebar-map-link" href={mapUrl} target="_blank" rel="noreferrer">
+          카카오맵에서 보기 →
+        </a>
+      </div>
+
+      {controls}
     </div>
   );
 }
+
 
 function App() {
   const [, mapError] = useKakaoLoader({
@@ -250,126 +396,77 @@ function App() {
     libraries: ['clusterer'],
   });
 
-  const mapRef = useRef(null);
-  const geojsonRef = useRef(null);
-  const gapMapRef = useRef({});
-  const minRef = useRef(0);
-  const maxRef = useRef(1);
-
+  const [mode, setMode] = useState('housing');
+  const [housing, setHousing] = useState([]);
   const [parks, setParks] = useState([]);
-  const [greengap, setGreengap] = useState([]);
-  const [selected, setSelected] = useState(null);
-  const [selectedPark, setSelectedPark] = useState(null);
-  const [showParks, setShowParks] = useState(true);
-  const [showChoropleth, setShowChoropleth] = useState(true);
+  const [origin, setOrigin] = useState(null);      // 선택한 단지 또는 공원
+  const [detail, setDetail] = useState(null);      // nearby 응답
+  const [loading, setLoading] = useState(false);
+  const [hovered, setHovered] = useState(null);    // 목록 hover -> 지도 강조
+  const [hiddenGroups, setHiddenGroups] = useState(() => new Set(['children']));
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_MIN_W);
 
-  useEffect(() => {
-    fetch('http://localhost:8000/api/parks')
-      .then(res => res.json())
-      .then(setParks);
-    fetch('http://localhost:8000/api/greengap')
-      .then(res => res.json())
-      .then(setGreengap);
-    fetch('/seoul_districts.json')
-      .then(res => res.json())
-      .then(data => { geojsonRef.current = data; });
+  const handleResize = useCallback((w) => {
+    setSidebarWidth(Math.min(SIDEBAR_MAX_W, Math.max(SIDEBAR_MIN_W, w)));
   }, []);
 
-  const onMapLoad = useCallback((map) => {
-    mapRef.current = map;
+  useEffect(() => {
+    fetch(`${API_BASE}/api/housing`).then(r => r.json()).then(setHousing);
+    fetch(`${API_BASE}/api/parks`).then(r => r.json()).then(setParks);
   }, []);
 
-  /*
-   * 구별 색칠(choropleth) — 보류 중.
-   *
-   * 아래 코드는 구글 지도의 Data Layer(map.data)에 의존한다. GeoJSON을 통째로
-   * 넘기면 폴리곤 생성·일괄 스타일링·클릭 이벤트를 알아서 처리해주는 기능인데,
-   * 카카오에는 대응물이 없다. 되살리려면 seoul_districts.json을 직접 파싱해서
-   * 구 25개를 kakao.maps.Polygon으로 만들고 각각에 스타일과 클릭 핸들러를
-   * 붙여야 한다 (약 60~80줄).
-   *
-   * 되살릴 때는 파일 상단의 ENABLE_CHOROPLETH도 true로 바꿀 것.
-   *
+  const onMapLoad = useCallback(() => {}, []);
+
+  // 선택이 바뀌면 주변을 조회한다. 응답 형태가 양쪽 동일해서 분기가 kind 하나뿐이다.
   useEffect(() => {
-    if (!mapRef.current || greengap.length === 0) return;
-    const map = mapRef.current;
+    if (!origin) { setDetail(null); return; }
+    let cancelled = false;
+    setLoading(true);
+    const path = mode === 'housing' ? 'housing' : 'parks';
+    fetch(`${API_BASE}/api/${path}/${origin.id}/nearby?radius=${RADIUS_M}`)
+      .then(r => r.json())
+      .then(d => { if (!cancelled) { setDetail(d); setLoading(false); } })
+      .catch(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [origin, mode]);
 
-    const values = greengap.map(d => d.green_per_capita);
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    const gapMap = {};
-    greengap.forEach(d => { gapMap[d['구']] = d; });
+  const handleModeChange = useCallback((next) => {
+    setMode(next);
+    setOrigin(null);
+    setDetail(null);
+    setHovered(null);
+  }, []);
 
-    gapMapRef.current = gapMap;
-    minRef.current = min;
-    maxRef.current = max;
-
-    const applyStyle = (geojson) => {
-      map.data.forEach(f => map.data.remove(f));
-      map.data.addGeoJson(geojson);
-      map.data.setStyle(feature => {
-        const name = feature.getProperty('name');
-        const val = gapMapRef.current[name]?.green_per_capita ?? minRef.current;
-        return {
-          fillColor: getGreenGapColor(val, minRef.current, maxRef.current),
-          fillOpacity: 0.55,
-          strokeColor: '#ffffff',
-          strokeWeight: 1,
-        };
-      });
-      map.data.addListener('click', (e) => {
-        const name = e.feature.getProperty('name');
-        setSelectedPark(null);
-        setSelected(gapMapRef.current[name] ?? { '구': name, noData: true });
-      });
-    };
-
-    if (geojsonRef.current) {
-      applyStyle(geojsonRef.current);
-    } else {
-      fetch('/seoul_districts.json')
-        .then(res => res.json())
-        .then(data => {
-          geojsonRef.current = data;
-          applyStyle(data);
-        });
-    }
-  }, [greengap]);
-
-  useEffect(() => {
-    if (!mapRef.current) return;
-    mapRef.current.data.setStyle(feature => {
-      if (!showChoropleth) return { fillOpacity: 0, strokeWeight: 0 };
-      const name = feature.getProperty('name');
-      const val = gapMapRef.current[name]?.green_per_capita ?? minRef.current;
-      return {
-        fillColor: getGreenGapColor(val, minRef.current, maxRef.current),
-        fillOpacity: 0.55,
-        strokeColor: '#ffffff',
-        strokeWeight: 1,
-      };
+  const handleToggleGroup = useCallback((key) => {
+    setHiddenGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
     });
-  }, [showChoropleth]);
-  */
+  }, []);
+
+  const handleSelectHousing = useCallback((item) => {
+    setOrigin({ id: item.id, name: item.complex_name, lat: item.lat, lng: item.lng,
+                gu_name: item.gu_name, lease_type: item.lease_type,
+                households: item.households, move_in_date: item.move_in_date });
+  }, []);
 
   const handleSelectPark = useCallback((park) => {
-    setSelected(null);
-    setSelectedPark(park);
+    setOrigin({ id: park.id, name: park['공원명'], lat: park['위도'], lng: park['경도'],
+                gu_name: park['구'], subtype: park['공원구분'], area: park['공원면적'] });
   }, []);
 
-  const handleToggleParks = () => {
-    setShowParks(v => {
-      if (v) setSelectedPark(null);
-      return !v;
-    });
-  };
+  // 공원 모드의 진입점은 1,723개라 그대로 뿌리면 고를 수가 없다. 범례에서 끈
+  // 그룹(기본: 어린이공원 1,010개)을 빼서 클릭 가능한 수로 줄인다.
+  const visibleParks = useMemo(() => {
+    if (mode !== 'park') return [];
+    return parks.filter(p => !hiddenGroups.has(PARK_TYPE_TO_GROUP[p['공원구분']] || 'etc'));
+  }, [mode, parks, hiddenGroups]);
 
-  const handleToggleChoropleth = () => {
-    setShowChoropleth(v => {
-      if (v) setSelected(null);
-      return !v;
-    });
-  };
+  // 선택 후에는 반경 안의 대상만 그린다. 공원을 서울 전역에 뿌릴 이유가 없어져
+  // 원래 마커 1,723개를 한꺼번에 렌더하던 성능 문제가 사라진다.
+  const nearbyItems = detail?.items ?? [];
+
 
   const [activeSection, setActiveSection] = useState(null);
   const aboutRef = useRef(null);
@@ -426,46 +523,78 @@ function App() {
               minLevel={ZOOM_OUT_LIMIT}
               onCreate={onMapLoad}
             >
-              {showParks && selectedPark && (
+              {origin && (
                 <Circle
-                  center={{ lat: selectedPark['위도'], lng: selectedPark['경도'] }}
-                  radius={800}
+                  center={{ lat: origin.lat, lng: origin.lng }}
+                  radius={RADIUS_M}
                   fillColor="#13f229"
-                  fillOpacity={0.15}
+                  fillOpacity={0.12}
                   strokeColor="#13f229"
                   strokeOpacity={0.6}
                   strokeWeight={1.5}
                 />
               )}
-              {showParks && (
-                <MarkerClusterer averageCenter={true} minLevel={CLUSTER_MIN_LEVEL}>
-                  {parks.map((park, i) => {
-                    const isSelected = !!selectedPark && selectedPark['공원명'] === park['공원명']
-                      && selectedPark['위도'] === park['위도'];
-                    return (
+
+              {/* 기준 레이어. 선택 전에는 이것만 보인다. */}
+              <MarkerClusterer averageCenter={true} minLevel={CLUSTER_MIN_LEVEL}>
+                {mode === 'housing'
+                  ? housing.map(item => (
+                      <HousingMarker
+                        key={item.id}
+                        item={item}
+                        isSelected={origin?.id === item.id}
+                        onSelect={handleSelectHousing}
+                      />
+                    ))
+                  : visibleParks.map(park => (
                       <ParkMarker
-                        key={i}
+                        key={park.id}
                         park={park}
-                        isSelected={isSelected}
+                        isSelected={origin?.id === park.id}
                         onSelect={handleSelectPark}
                       />
-                    );
-                  })}
-                </MarkerClusterer>
+                    ))}
+              </MarkerClusterer>
+
+              {/* 선택 후 반경 안에 들어온 대상. 보통 5~15개라 클러스터 없이 그린다. */}
+              {nearbyItems.map(item =>
+                mode === 'housing' ? (
+                  <ParkMarker
+                    key={`n-${item.id}`}
+                    park={{
+                      id: item.id, '공원명': item.name, '공원구분': item.subtype,
+                      '위도': item.lat, '경도': item.lng, '구': item.gu_name,
+                    }}
+                    isSelected={hovered === item.id}
+                    onSelect={() => {}}
+                  />
+                ) : (
+                  <HousingMarker
+                    key={`n-${item.id}`}
+                    item={item}
+                    isSelected={hovered === item.id}
+                    onSelect={() => {}}
+                  />
+                )
               )}
             </Map>
           )}
         </div>
 
-        <Sidebar
-          district={selected}
-          park={selectedPark}
-          onClose={() => { setSelected(null); setSelectedPark(null); }}
-          showParks={showParks}
-          onToggleParks={handleToggleParks}
-          showChoropleth={showChoropleth}
-          onToggleChoropleth={handleToggleChoropleth}
-        />
+        <div className="sidebar-wrap" style={{ width: sidebarWidth }}>
+          <SidebarResizer onResize={handleResize} />
+          <Sidebar
+            mode={mode}
+            onModeChange={handleModeChange}
+            origin={origin}
+            detail={detail}
+            loading={loading}
+            onClose={() => { setOrigin(null); setDetail(null); }}
+            onHover={setHovered}
+            hidden={hiddenGroups}
+            onToggleGroup={handleToggleGroup}
+          />
+        </div>
       </div>
 
       <div ref={aboutRef} data-section="about" className="scroll-section scroll-about">

@@ -118,7 +118,7 @@ body {
 /* 사이드바 */
 .sidebar {
   flex-shrink: 0;
-  width: 300px;
+  /* 너비는 App 의 sidebarWidth 상태가 인라인으로 지정한다 (드래그로 조절) */
   height: 100%;
   background: rgba(255, 255, 255, 0.6);
   backdrop-filter: blur(12px);
@@ -284,4 +284,95 @@ body {
 
 .layer-toggle.active .layer-toggle-dot {
   background: #40916c;
+}
+
+/* ---- 정책 충족 배지 ---- */
+.policy-badge {
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  margin-bottom: 10px;
+}
+.policy-badge.met   { background: #e7f6ec; color: #1b6b3a; }
+.policy-badge.unmet { background: #fdeaea; color: #a32626; }
+
+/* ---- 주변 목록 ---- */
+.nearby-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.nearby-item {
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 4px;
+  border-bottom: 1px solid #eee;
+  font-size: 13px;
+  cursor: default;
+}
+.nearby-item:hover { background: #f4f7ff; }
+.nearby-dist { font-weight: 700; color: #12309b; }
+.nearby-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nearby-sub  { font-size: 11px; color: #888; }
+
+/* ---- 범례 (공원 모드에서는 필터로도 동작) ---- */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border: 1px solid #ddd;
+  border-radius: 14px;
+  background: #fff;
+  font-size: 11px;
+  cursor: pointer;
+}
+.legend-item:disabled { cursor: default; opacity: 0.85; }
+.legend-item.off { color: #aaa; background: #f6f6f6; }
+.legend-swatch {
+  width: 10px;
+  height: 10px;
+  display: inline-block;
+  border: 0.8px solid #000;
+}
+.legend-circle   { border-radius: 50%; }
+.legend-square   { border-radius: 2px; }
+.legend-triangle {
+  border: none;
+  clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+}
+
+
+/* ---- 사이드바 너비 조절 핸들 ---- */
+/* 래퍼가 너비를 갖고, 핸들은 그 경계 위에 겹쳐 놓는다.
+   flex 항목으로 두면 6px 만큼 레이아웃을 차지해 그 틈으로 페이지 배경이 비친다. */
+.sidebar-wrap {
+  position: relative;
+  flex-shrink: 0;
+  height: 100%;
+}
+.sidebar-wrap .sidebar {
+  width: 100%;
+}
+.sidebar-resizer {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 10;
 }
