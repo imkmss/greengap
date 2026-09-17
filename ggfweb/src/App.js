@@ -472,14 +472,14 @@ function App() {
   const aboutRef = useRef(null);
   const dataRef = useRef(null);
   const emptyRef = useRef(null);
-  const contactRef = useRef(null);
+  const mypageRef = useRef(null);
 
   useEffect(() => {
     const sections = [
       { ref: aboutRef, name: 'about' },
       { ref: dataRef, name: 'data' },
       { ref: emptyRef, name: 'empty' },
-      { ref: contactRef, name: 'contact' },
+      { ref: mypageRef, name: 'mypage' },
     ];
     const intersecting = new Set();
     const observer = new IntersectionObserver(
@@ -619,10 +619,10 @@ function App() {
         </div>
       </div>
 
-      <div ref={contactRef} data-section="contact" className="scroll-section scroll-contact">
+      <div ref={mypageRef} data-section="mypage" className="scroll-section scroll-mypage">
         <div className="about-content">
           <section className="about-hero">
-            <h1 className="about-hero-title">Contact</h1>
+            <h1 className="about-hero-title">My Page</h1>
             <p className="about-hero-sub">준비 중입니다</p>
           </section>
         </div>

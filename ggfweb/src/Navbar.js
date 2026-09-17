@@ -30,10 +30,10 @@ function Navbar({ activeSection }) {
           onClick={() => navigate('/empty')}
         ><b>Empty</b></button>
         <button
-          className={`nav-btn ${location.pathname === '/contact' ? 'active' : ''}`}
-          style={scrollColor('contact')}
-          onClick={() => navigate('/contact')}
-        ><b>Contact</b></button>
+          className={`nav-btn ${location.pathname === '/mypage' ? 'active' : ''}`}
+          style={scrollColor('mypage')}
+          onClick={() => navigate('/mypage')}
+        ><b>My Page</b></button>
       </div>
     </nav>
   );

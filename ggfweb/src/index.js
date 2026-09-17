@@ -6,7 +6,7 @@ import App from './App';
 import About from './About';
 import Data from './Data';
 import Empty from './Empty';
-import Contact from './Contact';
+import Mypage from './Mypage';
 import reportWebVitals from './reportWebVitals';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
@@ -18,7 +18,7 @@ root.render(
         <Route path="/about" element={<About />} />
         <Route path="/data" element={<Data />} />
         <Route path="/empty" element={<Empty />} />
-        <Route path="/contact" element={<Contact />} />
+        <Route path="/mypage" element={<Mypage />} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>

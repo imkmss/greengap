@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import Navbar from './Navbar';
 import './About.css';
 
-function Contact() {
+function Mypage() {
   useEffect(() => {
     document.body.style.overflow = 'auto';
     return () => { document.body.style.overflow = 'hidden'; };
@@ -13,7 +13,7 @@ function Contact() {
       <Navbar />
       <div className="about-content">
         <section className="about-hero">
-          <h1 className="about-hero-title">Contact</h1>
+          <h1 className="about-hero-title">My Page</h1>
           <p className="about-hero-sub">준비 중입니다</p>
         </section>
       </div>
@@ -21,4 +21,4 @@ function Contact() {
   );
 }
 
-export default Contact;
+export default Mypage;
