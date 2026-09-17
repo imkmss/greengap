@@ -1,6 +1,26 @@
 -- GGF greengap DB 스키마
 -- api/load_data.py 가 채우고 api/main.py 가 읽는 테이블 정의
 
+-- 두 좌표 사이의 거리를 미터로 반환한다 (하버사인).
+--
+-- 위경도는 각도이지 거리가 아니다. 위도 1도는 어디서나 약 111km지만 경도 1도는
+-- 서울(북위 37.5도)에서 약 88km라, 평면처럼 빼서 계산하면 동서 거리가 26% 부풀려진다.
+-- 기준선이 800m인 이 프로젝트에서는 그 오차가 정책 충족 판정을 뒤집는다.
+--
+-- 이름의 _m 은 반환 단위가 미터라는 뜻이다. km 와 헷갈리면 800배가 어긋난다.
+-- LANGUAGE sql + IMMUTABLE 이라 쿼리에 인라인 확장되므로, 같은 호출이 WHERE 와
+-- ORDER BY 에 두 번 있어도 한 번만 계산된다.
+CREATE OR REPLACE FUNCTION haversine_m(
+    lat1 DOUBLE PRECISION, lng1 DOUBLE PRECISION,
+    lat2 DOUBLE PRECISION, lng2 DOUBLE PRECISION
+) RETURNS DOUBLE PRECISION AS $$
+    SELECT 6371000 * 2 * asin(sqrt(
+        power(sin(radians(lat2 - lat1) / 2), 2)
+        + cos(radians(lat1)) * cos(radians(lat2))
+        * power(sin(radians(lng2 - lng1) / 2), 2)
+    ));
+$$ LANGUAGE sql IMMUTABLE PARALLEL SAFE;
+
 CREATE TABLE IF NOT EXISTS districts (
     gu_code  VARCHAR(5) PRIMARY KEY,
     gu_name  VARCHAR(20) NOT NULL
