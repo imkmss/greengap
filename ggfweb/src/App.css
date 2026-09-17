@@ -376,3 +376,13 @@ body {
   background: transparent;
   z-index: 10;
 }
+
+/* 직선거리 아래에 실제 도보 시간을 덧붙인다. 둘의 차이가 이 도구의 요점이라
+   같은 칸에 나란히 둔다. */
+.nearby-walk {
+  display: block;
+  font-style: normal;
+  font-weight: 500;
+  font-size: 10px;
+  color: #777;
+}

@@ -220,6 +220,13 @@ function formatDistance(m) {
   return m < 1000 ? `${Math.round(m)}m` : `${(m / 1000).toFixed(1)}km`;
 }
 
+// 도보 시간. TMAP 결과가 아직 없는 쌍은 빈 값을 돌려준다.
+function formatWalk(sec) {
+  if (sec == null) return '';
+  const min = Math.max(1, Math.round(sec / 60));
+  return `도보 ${min}분`;
+}
+
 // 단지 기준이든 공원 기준이든 응답 형태가 같아서 이 컴포넌트 하나를 공유한다.
 function NearbyPanel({ detail, onHover }) {
   const { items, summary, nearest, policy_met: policyMet, radius } = detail;
@@ -238,6 +245,7 @@ function NearbyPanel({ detail, onHover }) {
           <span className="sidebar-label">가장 가까운 {targetIsPark ? '공원' : '단지'}</span>
           <span className="sidebar-value small">
             {nearest.name} · {formatDistance(nearest.distance_m)}
+            {nearest.walk_sec != null && ` · ${formatWalk(nearest.walk_sec)}`}
           </span>
         </div>
       )}
@@ -278,7 +286,12 @@ function NearbyPanel({ detail, onHover }) {
             onMouseEnter={() => onHover(item.id)}
             onMouseLeave={() => onHover(null)}
           >
-            <span className="nearby-dist">{formatDistance(item.distance_m)}</span>
+            <span className="nearby-dist">
+              {formatDistance(item.distance_m)}
+              {item.walk_sec != null && (
+                <em className="nearby-walk">{formatWalk(item.walk_sec)}</em>
+              )}
+            </span>
             <span className="nearby-name">{item.name}</span>
             <span className="nearby-sub">{item.subtype}</span>
           </li>
