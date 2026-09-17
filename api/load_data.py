@@ -139,6 +139,39 @@ def load_housing(cur):
     print(f"  {len(rows)}개 단지 삽입 완료 (자치구 확인 필요 {checks}건)")
 
 
+def load_walk(cur):
+    print("Loading housing_park_walk...")
+    path = os.path.join(OUTPUT_DIR, "housing_park_walk.csv")
+    if not os.path.exists(path):
+        print(f"  건너뜀 — {path} 없음 "
+              "(pipeline/preprocessing/walk_distance.py 를 먼저 실행하세요)")
+        return
+
+    df = pd.read_csv(path, encoding="utf-8-sig")
+    # 경로를 못 찾은 쌍(failed)은 넣지 않는다. 값이 비어 있는 행을 넣으면
+    # API 쪽에서 "아직 안 받은 것"과 "받았는데 경로가 없는 것"이 구분되지 않는다.
+    df = df[df["status"] == "ok"].dropna(subset=["walk_m", "walk_sec"])
+
+    rows = [
+        (int(r["housing_id"]), int(r["park_id"]),
+         float(r["straight_m"]), float(r["walk_m"]), int(r["walk_sec"]))
+        for _, r in df.iterrows()
+    ]
+    if not rows:
+        print("  적재할 행이 없습니다")
+        return
+
+    execute_values(cur, """
+        INSERT INTO housing_park_walk (housing_id, park_id, straight_m, walk_m, walk_sec)
+        VALUES %s
+        ON CONFLICT (housing_id, park_id) DO UPDATE
+            SET straight_m = EXCLUDED.straight_m,
+                walk_m = EXCLUDED.walk_m,
+                walk_sec = EXCLUDED.walk_sec
+    """, rows)
+    print(f"  {len(rows)}쌍 삽입 완료")
+
+
 def load_greengap_stats(cur):
     print("Loading greengap_stats...")
     cur.execute("""
@@ -169,6 +202,7 @@ def main():
         load_parks(cur)
         load_population(cur)
         load_housing(cur)
+        load_walk(cur)
         load_greengap_stats(cur)
         conn.commit()
         print("\n모든 데이터 로드 완료!")

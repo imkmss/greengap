@@ -135,15 +135,21 @@ _ORIGIN_SQL = {
 _TARGET_SQL = {
     "park": """
         SELECT p.id, p.park_name AS name, p.park_type AS subtype, p.area,
-               d.gu_name, p.lat, p.lng, NULL::int AS walk_sec,
+               d.gu_name, p.lat, p.lng, w.walk_m, w.walk_sec,
                haversine_m(%(lat)s, %(lng)s, p.lat, p.lng) AS distance_m
-        FROM parks p JOIN districts d ON d.gu_code = p.gu_code
+        FROM parks p
+        JOIN districts d ON d.gu_code = p.gu_code
+        LEFT JOIN housing_park_walk w
+               ON w.park_id = p.id AND w.housing_id = %(origin_id)s
     """,
     "housing": """
         SELECT h.id, h.complex_name AS name, h.lease_type AS subtype,
-               h.households, d.gu_name, h.lat, h.lng, NULL::int AS walk_sec,
+               h.households, d.gu_name, h.lat, h.lng, w.walk_m, w.walk_sec,
                haversine_m(%(lat)s, %(lng)s, h.lat, h.lng) AS distance_m
-        FROM housing h JOIN districts d ON d.gu_code = h.gu_code
+        FROM housing h
+        JOIN districts d ON d.gu_code = h.gu_code
+        LEFT JOIN housing_park_walk w
+               ON w.housing_id = h.id AND w.park_id = %(origin_id)s
     """,
 }
 
@@ -155,7 +161,9 @@ def _nearby(origin_kind, target_kind, item_id, radius):
     origin = found[0]
 
     base = _TARGET_SQL[target_kind]
-    params = {"lat": origin["lat"], "lng": origin["lng"], "radius": radius}
+    # 도보거리는 (단지, 공원) 쌍으로 저장돼 있어 조인하려면 기준 쪽 id가 필요하다.
+    params = {"lat": origin["lat"], "lng": origin["lng"],
+              "radius": radius, "origin_id": origin["id"]}
 
     items = query(
         f"{base} WHERE haversine_m(%(lat)s, %(lng)s, "
@@ -169,7 +177,11 @@ def _nearby(origin_kind, target_kind, item_id, radius):
     # 단지가 39곳인데, 빈 목록만 주면 데이터가 없는 건지 진짜 먼 건지 구분되지 않는다.
     nearest = query(f"{base} ORDER BY distance_m LIMIT 1", params)
 
-    summary = {"count": len(items), "types": sorted({i["subtype"] for i in items if i["subtype"]})}
+    summary = {
+        "count": len(items),
+        "types": sorted({i["subtype"] for i in items if i["subtype"]}),
+        "walk_known": sum(1 for i in items if i["walk_sec"] is not None),
+    }
     if target_kind == "park":
         summary["total_area"] = sum(i["area"] or 0 for i in items)
     else:

@@ -69,6 +69,23 @@ CREATE TABLE IF NOT EXISTS housing (
 
 CREATE INDEX IF NOT EXISTS idx_housing_gu ON housing (gu_code);
 
+-- 단지에서 공원까지의 실제 도보거리.
+-- 직선거리는 haversine_m 으로 즉시 구하지만(0.6ms), 보행 경로는 외부 API라
+-- 일 1,000건 제한이 있어 미리 받아둔다. pipeline/preprocessing/walk_distance.py 가 채운다.
+--
+-- straight_m 을 같이 저장하는 이유: 직선거리와 도보거리의 차이가 이 프로젝트의
+-- 근거다. 초기 표본에서 평균 2.7배, 최대 8.8배(직선 68m / 도보 600m)까지 벌어졌다.
+CREATE TABLE IF NOT EXISTS housing_park_walk (
+    housing_id  INTEGER NOT NULL REFERENCES housing(id) ON DELETE CASCADE,
+    park_id     INTEGER NOT NULL REFERENCES parks(id) ON DELETE CASCADE,
+    straight_m  DOUBLE PRECISION,
+    walk_m      DOUBLE PRECISION,
+    walk_sec    INTEGER,
+    PRIMARY KEY (housing_id, park_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_walk_housing ON housing_park_walk (housing_id);
+
 CREATE TABLE IF NOT EXISTS greengap_stats (
     gu_code           VARCHAR(5) PRIMARY KEY REFERENCES districts(gu_code),
     total_park_area   DOUBLE PRECISION,
