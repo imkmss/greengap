@@ -156,7 +156,8 @@ def load_walk(cur):
     df = pd.read_csv(path, encoding="utf-8-sig")
     # 경로를 못 찾은 쌍(failed)은 넣지 않는다. 값이 비어 있는 행을 넣으면
     # API 쪽에서 "아직 안 받은 것"과 "받았는데 경로가 없는 것"이 구분되지 않는다.
-    df = df[df["status"] == "ok"].dropna(subset=["walk_m", "walk_sec"])
+    # onsite 는 공원이 단지 안이라 호출 없이 직선값을 쓴 쌍으로, 값은 유효하다.
+    df = df[df["status"].isin(["ok", "onsite"])].dropna(subset=["walk_m", "walk_sec"])
 
     rows = [
         (int(r["housing_id"]), int(r["park_id"]),

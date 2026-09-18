@@ -36,6 +36,14 @@ TMAP_URL = "https://apis.openapi.sk.com/tmap/routes/pedestrian?version=1"
 CANDIDATE_RADIUS_M = 2000
 REQUEST_INTERVAL = 0.2
 
+# 2040 서울도시기본계획의 보행 접근권 기준. unmet 모드가 이 값으로 판정한다.
+POLICY_M = 800
+
+# 이 거리 안이면 공원이 단지 안에 있다고 본다. 공원 지번이 단지 지번과 같으면
+# 두 좌표가 소수점까지 겹쳐 TMAP에 출발=도착으로 들어가고 경로가 나오지 않는다.
+# 불러봐야 실패하므로 직선값을 그대로 쓴다.
+ONSITE_M = 20
+
 FIELDS = [
     "housing_id", "housing_name", "park_id", "park_name", "park_type",
     "straight_m", "walk_m", "walk_sec", "status",
@@ -96,7 +104,36 @@ def load_done():
         return set(), []
     with OUTPUT_PATH.open(encoding="utf-8-sig") as f:
         rows = list(csv.DictReader(f))
-    return {(r["housing_id"], r["park_id"]) for r in rows}, rows
+
+    # 좌표가 겹쳐 실패했던 쌍은 이제 호출 없이 처리한다. 기록에 남겨두면
+    # 건너뛰기에 걸려 영영 값이 안 채워지므로 뺀다.
+    kept = [r for r in rows
+            if not (r["status"] == "failed" and float(r["straight_m"] or 0) < ONSITE_M)]
+    if len(kept) != len(rows):
+        print(f"좌표가 겹쳐 실패했던 {len(rows) - len(kept)}쌍을 다시 처리합니다.")
+    return {(r["housing_id"], r["park_id"]) for r in kept}, kept
+
+
+def pick_targets(complex_row, args):
+    """이번 단지에서 도보거리를 구할 공원을 고른다.
+
+    nearest — 가까운 순 N개. 전체를 고르게 채울 때 쓴다.
+    unmet   — 도보 800m 충족이 아직 확인되지 않은 단지의, 안 재본 공원만.
+              최근접 공원 하나가 800m를 넘었다고 미달로 단정할 수 없다. 직선으로
+              더 먼 공원이 길이 곧아 실제로는 더 가까운 경우가 있어 판정이 뒤집힌다.
+    """
+    hid = complex_row["id"]
+
+    if args.targets == "unmet":
+        items = get_json(f"{API_BASE}/api/housing/{hid}/nearby?radius={POLICY_M}")["items"]
+        # 이미 800m 안에 드는 공원이 확인됐으면 더 잴 이유가 없다.
+        if any(p["walk_m"] is not None and p["walk_m"] <= POLICY_M for p in items):
+            return []
+        return [p for p in items if p["walk_m"] is None]
+
+    nearby = get_json(f"{API_BASE}/api/housing/{hid}/nearby?radius={CANDIDATE_RADIUS_M}")
+    # 반경 안에 하나도 없는 단지가 있다. 그때는 최근접 하나만이라도 구해둔다.
+    return nearby["items"][:args.parks] or ([nearby["nearest"]] if nearby["nearest"] else [])
 
 
 def main():
@@ -104,7 +141,9 @@ def main():
     parser.add_argument("--limit", type=int, default=950,
                         help="이번 실행에서 호출할 최대 건수 (무료 한도 1000건에서 여유분을 뺀 값)")
     parser.add_argument("--parks", type=int, default=3,
-                        help="단지당 도보거리를 구할 공원 수")
+                        help="단지당 도보거리를 구할 공원 수 (nearest 모드에서만)")
+    parser.add_argument("--targets", choices=["nearest", "unmet"], default="nearest",
+                        help="nearest=가까운 순 --parks개 / unmet=800m 충족 미확인 단지만")
     args = parser.parse_args()
 
     if not APP_KEY:
@@ -119,7 +158,10 @@ def main():
     done, results = load_done()
     if done:
         print(f"이미 처리한 {len(done)}쌍은 건너뜁니다.")
-    print(f"이번 실행 상한 {args.limit}콜 · 단지당 공원 {args.parks}개\n")
+    if args.targets == "unmet":
+        print(f"이번 실행 상한 {args.limit}콜 · 대상: 도보 {POLICY_M}m 충족 미확인 단지\n")
+    else:
+        print(f"이번 실행 상한 {args.limit}콜 · 단지당 공원 {args.parks}개\n")
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
@@ -135,11 +177,7 @@ def main():
             print(f"\n상한 {args.limit}콜에 도달했습니다. 다시 실행하면 이어서 진행합니다.")
             break
 
-        nearby = get_json(
-            f"{API_BASE}/api/housing/{complex_row['id']}/nearby?radius={CANDIDATE_RADIUS_M}"
-        )
-        # 반경 안에 하나도 없는 단지가 있다. 그때는 최근접 하나만이라도 구해둔다.
-        targets = nearby["items"][:args.parks] or ([nearby["nearest"]] if nearby["nearest"] else [])
+        targets = pick_targets(complex_row, args)
 
         for park in targets:
             key = (str(complex_row["id"]), str(park["id"]))
@@ -148,11 +186,16 @@ def main():
             if calls >= args.limit:
                 break
 
-            walk_m, walk_sec = tmap_walk(
-                complex_row, park, complex_row["complex_name"], park["name"]
-            )
-            calls += 1
-            time.sleep(REQUEST_INTERVAL)
+            straight = park["distance_m"]
+            if straight < ONSITE_M:
+                walk_m, walk_sec, status = round(straight), 0, "onsite"
+            else:
+                walk_m, walk_sec = tmap_walk(
+                    complex_row, park, complex_row["complex_name"], park["name"]
+                )
+                calls += 1
+                time.sleep(REQUEST_INTERVAL)
+                status = "ok" if walk_m is not None else "failed"
 
             results.append({
                 "housing_id": complex_row["id"],
@@ -160,24 +203,31 @@ def main():
                 "park_id": park["id"],
                 "park_name": park["name"],
                 "park_type": park["subtype"],
-                "straight_m": round(park["distance_m"]),
+                "straight_m": round(straight),
                 "walk_m": walk_m if walk_m is not None else "",
                 "walk_sec": walk_sec if walk_sec is not None else "",
-                "status": "ok" if walk_m is not None else "failed",
+                "status": status,
             })
             done.add(key)
 
-            if walk_m is not None:
-                ratio = walk_m / park["distance_m"] if park["distance_m"] else 0
-                print(f"[{idx:3}/{len(housing)}] {complex_row['complex_name'][:14]:14} "
-                      f"-> {park['name'][:14]:14} 직선 {round(park['distance_m']):4}m "
+            head = (f"[{idx:3}/{len(housing)}] {complex_row['complex_name'][:14]:14} "
+                    f"-> {park['name'][:14]:14}")
+            if status == "onsite":
+                print(f"{head} 단지 내 공원 (호출 생략)")
+            elif walk_m is not None:
+                ratio = walk_m / straight if straight else 0
+                print(f"{head} 직선 {round(straight):4}m "
                       f"도보 {walk_m:4}m ({ratio:.1f}배, {round(walk_sec/60)}분)")
             else:
-                print(f"[{idx:3}/{len(housing)}] {complex_row['complex_name'][:14]:14} "
-                      f"-> {park['name'][:14]:14} 경로 없음")
+                print(f"{head} 경로 없음")
 
             if calls % 25 == 0:
                 flush()
+
+            # unmet 모드는 충족 여부만 가리면 된다. 800m 안에 드는 공원이 하나
+            # 나온 순간 판정이 끝나므로 남은 후보에 콜을 더 쓰지 않는다.
+            if args.targets == "unmet" and walk_m is not None and walk_m <= POLICY_M:
+                break
 
     flush()
     report(results, calls)
@@ -185,8 +235,11 @@ def main():
 
 def report(results, calls):
     ok = [r for r in results if r["status"] == "ok"]
+    onsite = [r for r in results if r["status"] == "onsite"]
+    failed = [r for r in results if r["status"] == "failed"]
     print("\n" + "=" * 64)
-    print(f"이번 실행 {calls}콜 · 누적 {len(results)}쌍 (성공 {len(ok)} / 실패 {len(results) - len(ok)})")
+    print(f"이번 실행 {calls}콜 · 누적 {len(results)}쌍 "
+          f"(측정 {len(ok)} / 단지 내 {len(onsite)} / 실패 {len(failed)})")
 
     if ok:
         ratios = []
