@@ -101,7 +101,7 @@ const ParkMarker = memo(function ParkMarker({ park, isSelected, onSelect }) {
   const group = parkGroup(park['공원구분']);
   const image = useMemo(
     () => markerImage({
-      color: isSelected ? '#ffff00' : group.color,
+      color: isSelected ? '#ff0026' : group.color,
       shape: group.shape,
       selected: isSelected,
     }),
@@ -123,6 +123,8 @@ const HousingMarker = memo(function HousingMarker({ item, isSelected, onSelect }
   const image = useMemo(
     () => markerImage({
       ...HOUSING_MARKER,
+      // 단지는 노랑, 공원은 빨강으로 강조색을 나눈다. 같은 색이면 지도에서
+      // 고른 단지와 강조된 공원이 구분되지 않는다.
       color: isSelected ? '#ffff00' : HOUSING_MARKER.color,
       selected: isSelected,
     }),
@@ -164,7 +166,7 @@ function SidebarResizer({ onResize }) {
       className="sidebar-resizer"
       onMouseDown={handleMouseDown}
       onDoubleClick={() => onResize(SIDEBAR_MIN_W)}
-      title="드래그하여 너비 조절 (더블클릭: 기본값)"
+      title="드래그하여 너비 조절"
     />
   );
 }
@@ -190,19 +192,27 @@ function ModeToggle({ mode, onChange }) {
   );
 }
 
-// 범례이자 필터. 7그룹이라 눈으로 매칭이 되고, 항목을 누르면 해당 그룹이 꺼진다.
-// 공원 모드에서는 어린이공원 1,010개를 빼야 클릭으로 고를 만한 수가 된다.
-function Legend({ hidden, onToggle, interactive }) {
+// 범례이자 조작부. 모드에 따라 역할이 바뀐다.
+//   filter — 공원 모드. 어린이공원 1,010개를 빼야 클릭으로 고를 만한 수가 된다.
+//   focus  — 단지 모드에서 단지를 고른 뒤. 반경 안의 해당 그룹 공원을 강조한다.
+//            목록에 커서를 올렸을 때와 같은 강조를 그룹 단위로 켜는 것이다.
+//   static — 단지 모드지만 아직 고른 단지가 없을 때. 강조할 대상이 없다.
+function Legend({ variant, hidden, focus, onToggle, onFocus }) {
   return (
     <div className="legend">
       {Object.entries(PARK_GROUPS).map(([key, g]) => {
-        const off = hidden.has(key);
+        const off = variant === 'filter' && hidden.has(key);
+        const on = variant === 'focus' && focus === key;
         return (
           <button
             key={key}
-            className={`legend-item ${off ? 'off' : ''}`}
-            onClick={interactive ? () => onToggle(key) : undefined}
-            disabled={!interactive}
+            className={`legend-item ${off ? 'off' : ''}${on ? ' on' : ''}`}
+            onClick={
+              variant === 'filter' ? () => onToggle(key)
+                : variant === 'focus' ? () => onFocus(key)
+                  : undefined
+            }
+            disabled={variant === 'static'}
           >
             <span
               className={`legend-swatch legend-${g.shape}`}
@@ -228,7 +238,7 @@ function formatWalk(sec) {
 }
 
 // 단지 기준이든 공원 기준이든 응답 형태가 같아서 이 컴포넌트 하나를 공유한다.
-function NearbyPanel({ detail, onHover }) {
+function NearbyPanel({ detail, onHover, focus }) {
   const { items, summary, nearest, policy_met: policyMet, radius } = detail;
   const targetIsPark = detail.origin.kind === 'housing';
 
@@ -282,7 +292,9 @@ function NearbyPanel({ detail, onHover }) {
         {items.map(item => (
           <li
             key={item.id}
-            className="nearby-item"
+            className={`nearby-item${
+              focus && (PARK_TYPE_TO_GROUP[item.subtype] || 'etc') === focus ? ' focus' : ''
+            }`}
             onMouseEnter={() => onHover(item.id)}
             onMouseLeave={() => onHover(null)}
           >
@@ -306,11 +318,20 @@ function NearbyPanel({ detail, onHover }) {
   );
 }
 
-function Sidebar({ mode, onModeChange, origin, detail, loading, onClose, onHover, hidden, onToggleGroup }) {
+function Sidebar({ mode, onModeChange, origin, detail, loading, onClose, onHover,
+                  hidden, onToggleGroup, focusGroup, onFocusGroup }) {
+  // 공원 모드의 반경 안 대상은 단지라 공원 그룹으로 강조할 것이 없다.
+  const canFocus = mode === 'housing' && !!detail;
   const controls = (
     <>
       <ModeToggle mode={mode} onChange={onModeChange} />
-      <Legend hidden={hidden} onToggle={onToggleGroup} interactive={mode === 'park'} />
+      <Legend
+        variant={mode === 'park' ? 'filter' : canFocus ? 'focus' : 'static'}
+        hidden={hidden}
+        focus={focusGroup}
+        onToggle={onToggleGroup}
+        onFocus={onFocusGroup}
+      />
     </>
   );
 
@@ -378,7 +399,13 @@ function Sidebar({ mode, onModeChange, origin, detail, loading, onClose, onHover
 
       <div className="sidebar-section">
         {loading && <p className="sidebar-hint">주변 정보를 불러오는 중…</p>}
-        {!loading && detail && <NearbyPanel detail={detail} onHover={onHover} />}
+        {!loading && detail && (
+          <NearbyPanel
+            detail={detail}
+            onHover={onHover}
+            focus={canFocus ? focusGroup : null}
+          />
+        )}
       </div>
 
       <div className="sidebar-section">
@@ -417,6 +444,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [hovered, setHovered] = useState(null);    // 목록 hover -> 지도 강조
   const [hiddenGroups, setHiddenGroups] = useState(() => new Set(['children']));
+  const [focusGroup, setFocusGroup] = useState(null);  // 범례 클릭 -> 반경 안 해당 그룹 강조
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_MIN_W);
 
   const handleResize = useCallback((w) => {
@@ -448,6 +476,11 @@ function App() {
     setOrigin(null);
     setDetail(null);
     setHovered(null);
+    setFocusGroup(null);
+  }, []);
+
+  const handleFocusGroup = useCallback((key) => {
+    setFocusGroup(prev => (prev === key ? null : key));
   }, []);
 
   const handleToggleGroup = useCallback((key) => {
@@ -459,12 +492,14 @@ function App() {
   }, []);
 
   const handleSelectHousing = useCallback((item) => {
+    setFocusGroup(null);
     setOrigin({ id: item.id, name: item.complex_name, lat: item.lat, lng: item.lng,
                 gu_name: item.gu_name, lease_type: item.lease_type,
                 households: item.households, move_in_date: item.move_in_date });
   }, []);
 
   const handleSelectPark = useCallback((park) => {
+    setFocusGroup(null);
     setOrigin({ id: park.id, name: park['공원명'], lat: park['위도'], lng: park['경도'],
                 gu_name: park['구'], subtype: park['공원구분'], area: park['공원면적'] });
   }, []);
@@ -578,7 +613,10 @@ function App() {
                       id: item.id, '공원명': item.name, '공원구분': item.subtype,
                       '위도': item.lat, '경도': item.lng, '구': item.gu_name,
                     }}
-                    isSelected={hovered === item.id}
+                    isSelected={
+                      hovered === item.id
+                      || (PARK_TYPE_TO_GROUP[item.subtype] || 'etc') === focusGroup
+                    }
                     onSelect={() => {}}
                   />
                 ) : (
@@ -606,6 +644,8 @@ function App() {
             onHover={setHovered}
             hidden={hiddenGroups}
             onToggleGroup={handleToggleGroup}
+            focusGroup={focusGroup}
+            onFocusGroup={handleFocusGroup}
           />
         </div>
       </div>

@@ -320,6 +320,11 @@ body {
 .nearby-dist { font-weight: 700; color: #12309b; }
 .nearby-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nearby-sub  { font-size: 11px; color: #888; }
+/* 범례로 그룹을 강조하면 지도 마커가 붉게 바뀐다. 목록도 같은 색으로 맞춰
+   어느 줄이 그 그룹인지 지도와 눈으로 연결되게 한다. hover 는 한 단계 더 진하게
+   해서, 그룹 강조 중에도 커서가 어느 줄에 있는지 구분된다. */
+.nearby-item.focus { background: #ffe0e5; }
+.nearby-item.focus:hover { background: #ffb8c3; }
 
 /* ---- 범례 (공원 모드에서는 필터로도 동작) ---- */
 .legend {
@@ -341,6 +346,11 @@ body {
 }
 .legend-item:disabled { cursor: default; opacity: 0.85; }
 .legend-item.off { color: #aaa; background: #f6f6f6; }
+.legend-item.on {
+  border-color: #e00022;
+  background: #ffe0e5;
+  font-weight: 700;
+}
 .legend-swatch {
   width: 10px;
   height: 10px;
